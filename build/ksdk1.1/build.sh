@@ -1,6 +1,7 @@
 #!/bin/sh
 	
-	# Uncomment this to set ARMGCC_DIR correctly: export ARMGCC_DIR=<full path to arm-gcc directory>
+	# Uncomment this to set ARMGCC_DIR correctly:
+	export ARMGCC_DIR=/usr/
 
 	mkdir -p work
 	mkdir -p work/boards/Warp
@@ -30,6 +31,7 @@
 	cp ../../src/boot/ksdk1.1.0/devAS726x.*				work/demos/Warp/src/
 	cp ../../src/boot/ksdk1.1.0/devPAN1326.*			work/demos/Warp/src/
 	cp ../../src/boot/ksdk1.1.0/devRV8803C7.*			work/demos/Warp/src/
+	cp ../../src/boot/ksdk1.1.0/devSSD1331.*			work/demos/Warp/src/
 	cp ../../src/boot/ksdk1.1.0/CMakeLists.txt			work/demos/Warp/armgcc/Warp/
 	cp ../../src/boot/ksdk1.1.0/startup_MKL03Z4.S			work/platform/startup/MKL03Z4/gcc/startup_MKL03Z4.S
 	cp ../../src/boot/ksdk1.1.0/gpio_pins.c				work/boards/Warp
