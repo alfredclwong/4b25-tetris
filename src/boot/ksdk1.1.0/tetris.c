@@ -209,6 +209,7 @@ void play() {
 				}
 				next[next_head] = bag[bag_head++];
 				next_head = (next_head+1)%NEXT;
+				clear(55, 0, 63, 95);
 
         /********************************************/
         /*              FALLING/LOCK PHASE          */
@@ -278,6 +279,7 @@ void play() {
 										loc.x = COL_SPAWN;
 										loc.y = ROW_SPAWN;
 										held = 1;
+										clear(0, 0, 10, 95);
 										break;
 								default:
 										soft_dropping = 0;
