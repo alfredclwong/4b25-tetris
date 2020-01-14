@@ -23,7 +23,7 @@
 #endif
 
 volatile uint8_t inBuffer[1], payloadBytes[1];
-bool held = 0, falling = 1, soft_dropping =0, done = 0;
+bool held = 0, falling = 1, soft_dropping =0, done = 0, paused = 0;
 Point loc;
 Piece fall;
 int hold = -1, next[NEXT], bag[NUM_PIECES], next_head, bag_head, level;
@@ -188,7 +188,6 @@ void play() {
 		//srand(time(NULL));
 
 		level = 0;
-		soft_dropping = 0;
 		done = 0;
     while (!done) {
         /********************************************/
@@ -209,12 +208,76 @@ void play() {
         /********************************************/
 				held = 0;
 				falling = 1;
+				soft_dropping = 0;
         curr = OSA_TimeGetMsec();
-				prev_fall = 0;
-        prev_draw = 0;
+				prev_fall = curr - 999;
+        prev_draw = curr - 999;
         while (!done) {
-						// TODO deal with inputs
+						char key = SEGGER_RTT_GetKey();
+						int dx, drot;
+						switch(key) {
+								case 'q':
+										done = 1;
+										continue;
+								case 'p':
+										paused = !paused;
+										continue;
+								case 'n': // left
+								case 'm': // right
+										dx = key == 'n' ? -1 : 1;
+										for (int i=0; i<4; i++) {
+												int x = loc.x + fall.points[i].x + dx,
+														y = loc.y + fall.points[i].y;
+												if (x<0 || x>=COLS || (y<ROWS && matrix[x][y]>-1)) {
+														dx = 0;
+														break;
+												}
+										}
+										loc.x += dx;
+										break;
+								case ' ': // hard drop
+										while (can_fall(&fall, &loc, matrix))
+												loc.y--;
+										falling = 0;
+										lock_start = curr - 999;
+										break;
+								case ',': // soft drop
+										soft_dropping = 1;
+										break;
+								case 'z': // rotate ccw
+								case 'x': // rotate cw
+										drot = key == 'z' ? 1: -1;
+										if (can_rotate(&fall, &loc, matrix, drot))
+												rotate(&fall, drot);
+										break;
+								case 'c': // hold
+										if (held)
+												break;
+										if (hold > -1) { // swap hold and fall
+												int tmp = hold;
+												hold = fall.id;
+												fall = PIECES[tmp];
+										} else { // nothing in hold
+												hold = fall.id;
+												fall = PIECES[next[next_head]];
+												if (bag_head == NUM_PIECES) {
+														fill_bag(bag);
+														bag_head = 0;
+												}
+												next[next_head] = bag[bag_head++];
+												next_head = (next_head+1)%NEXT;
+										}
+										loc.x = COL_SPAWN;
+										loc.y = ROW_SPAWN;
+										held = 1;
+										break;
+								default:
+										soft_dropping = 0;
+										break;
+						}
 
+						if (paused)
+								continue;
 						curr = OSA_TimeGetMsec();
 
             if (!falling) {
@@ -331,7 +394,7 @@ void play() {
                 for (int x=0; x<COLS; x++)
                     matrix[x][y] = matrix[x][y+1];
             for (int x=0; x<COLS; x++)
-                matrix[x][ROWS-1] = 0;
+                matrix[x][ROWS-1] = -1;
         }
     }
 }
