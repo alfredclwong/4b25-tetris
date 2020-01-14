@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <math.h>
 #include "tetris.h"
 
 #include "fsl_spi_master_driver.h"
@@ -137,29 +138,12 @@ int can_rotate(Piece *fall, Point *loc, bool matrix[COLS][ROWS], int direction) 
 
 double speed(int level, int soft_dropping) {
 		if (soft_dropping)
-        return 0.05;//pow(0.8 - level * 0.007, level) / 20.0;
-    return 1;//pow(0.8 - level * 0.007, level);
+        return pow(0.8 - level * 0.007, level) / 20.0;
+    return pow(0.8 - level * 0.007, level);
 }
 
-void
-drawSquare(uint8_t x, uint8_t y, uint16_t color)
+void clear()
 {
-	GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
-
-	sendByte(kSSD1331CommandDRAWRECT);
-	sendByte(4*y++);
-	sendByte(4*x++);
-	sendByte(4*y-1);
-	sendByte(4*x-1);
-	for (int i=0; i<2; i++) {
-		sendByte((color&color_masks[0])>>10);
-		sendByte((color&color_masks[1])>>5);
-		sendByte((color&color_masks[2])<<1);
-	}
-	GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
-}
-
-void draw(bool matrix[COLS][ROWS], Point *loc, Piece *fall, Piece *hold, Piece *next, Piece *bag, uint8_t next_head, uint8_t bag_head, bool hold_empty) {
 		/*
 		 *	Clear Screen
 		 */
@@ -176,6 +160,27 @@ void draw(bool matrix[COLS][ROWS], Point *loc, Piece *fall, Piece *hold, Piece *
 		sendByte(0);
 		sendByte(0);
 		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
+}
+
+void
+drawSquare(uint8_t x, uint8_t y, uint16_t color)
+{
+	GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
+	sendByte(kSSD1331CommandDRAWRECT);
+	sendByte(4*y++);
+	sendByte(4*x++);
+	sendByte(4*y-1);
+	sendByte(4*x-1);
+	for (int i=0; i<2; i++) {
+		sendByte((color&color_masks[0])>>10);
+		sendByte((color&color_masks[1])>>5);
+		sendByte((color&color_masks[2])<<1);
+	}
+	GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
+}
+
+void draw(bool matrix[COLS][ROWS], Point *loc, Piece *fall, Piece *hold, Piece *next, Piece *bag, uint8_t next_head, uint8_t bag_head, bool hold_empty) {
+		clear();
 		OSA_TimeDelay(1);
 		GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
 		// draw borders

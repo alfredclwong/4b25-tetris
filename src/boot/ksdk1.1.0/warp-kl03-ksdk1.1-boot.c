@@ -70,7 +70,6 @@
 /*
  *	TODO: move this and possibly others into a global structure
  */
-volatile i2c_master_state_t			i2cMasterState;
 volatile spi_master_state_t			spiMasterState;
 volatile spi_master_user_config_t		spiUserConfig;
 volatile lpuart_user_config_t 			lpuartUserConfig;
@@ -84,75 +83,6 @@ volatile uint32_t			gWarpSpiBaudRateKbps		= 200;
 volatile uint32_t			gWarpSleeptimeSeconds		= 0;
 volatile WarpModeMask			gWarpMode			= kWarpModeDisableAdcOnSleep;
 volatile uint32_t			gWarpSpiTimeoutMicroseconds	= 5;
-volatile uint32_t			gWarpMenuPrintDelayMilliseconds	= 10;
-volatile uint32_t			gWarpSupplySettlingDelayMilliseconds = 1;
-
-/*
-void					sleepUntilReset(void);
-void					lowPowerPinStates(void);
-void					printPinDirections(void);
-void					dumpProcessorState(void);
-void					repeatRegisterReadForDeviceAndAddress(WarpSensorDevice warpSensorDevice, uint8_t baseAddress, 
-								uint16_t pullupValue, bool autoIncrement, int chunkReadsPerAddress, bool chatty,
-								int spinDelay, int repetitionsPerAddress, uint16_t sssupplyMillivolts,
-								uint16_t adaptiveSssupplyMaxMillivolts, uint8_t referenceByte);
-int					char2int(int character);
-void					enableSssupply(uint16_t voltageMillivolts);
-void					disableSssupply(void);
-void					activateAllLowPowerSensorModes(bool verbose);
-void					powerupAllSensors(void);
-uint8_t					readHexByte(void);
-int					read4digits(void);
-void					printAllSensors(bool printHeadersAndCalibration, bool hexModeFlag, int menuDelayBetweenEachRun, int i2cPullupValue);
-
-
-WarpStatus				writeBytesToSpi(uint8_t *  payloadBytes, int payloadLength);
-
-
-void					warpLowPowerSecondsSleep(uint32_t sleepSeconds, bool forceAllPinsIntoLowPowerState);
-*/
-
-/*
- *	From KSDK power_manager_demo.c <<BEGIN>>>
- */
-
-clock_manager_error_code_t clockManagerCallbackRoutine(clock_notify_struct_t *  notify, void *  callbackData);
-
-/*
- *	static clock callback table.
- */
-clock_manager_callback_user_config_t		clockManagerCallbackUserlevelStructure =
-									{
-										.callback	= clockManagerCallbackRoutine,
-										.callbackType	= kClockManagerCallbackBeforeAfter,
-										.callbackData	= NULL
-									};
-
-static clock_manager_callback_user_config_t *	clockCallbackTable[] =
-									{
-										&clockManagerCallbackUserlevelStructure
-									};
-
-clock_manager_error_code_t
-clockManagerCallbackRoutine(clock_notify_struct_t *  notify, void *  callbackData)
-{
-	clock_manager_error_code_t result = kClockManagerSuccess;
-
-	switch (notify->notifyType)
-	{
-		case kClockManagerNotifyBefore:
-			break;
-		case kClockManagerNotifyRecover:
-		case kClockManagerNotifyAfter:
-			break;
-		default:
-			result = kClockManagerError;
-		break;
-	}
-
-	return result;
-}
-
 
 /*
  *	Override the RTC IRQ handler
@@ -174,54 +104,6 @@ RTC_Seconds_IRQHandler(void)
 {
 	gWarpSleeptimeSeconds++;
 }
-
-/*
- *	Power manager user callback
- */
-power_manager_error_code_t callback0(power_manager_notify_struct_t *  notify,
-					power_manager_callback_data_t *  dataPtr)
-{
-	WarpPowerManagerCallbackStructure *		callbackUserData = (WarpPowerManagerCallbackStructure *) dataPtr;
-	power_manager_error_code_t			status = kPowerManagerError;
-
-	switch (notify->notifyType)
-	{
-		case kPowerManagerNotifyBefore:
-			status = kPowerManagerSuccess;
-			break;
-		case kPowerManagerNotifyAfter:
-			status = kPowerManagerSuccess;
-			break;
-		default:
-			callbackUserData->errorCount++;
-			break;
-	}
-
-	return status;
-}
-
-/*
- *	From KSDK power_manager_demo.c <<END>>>
- */
-
-
-
-void
-sleepUntilReset(void)
-{
-	while (1)
-	{
-#ifdef WARP_BUILD_ENABLE_DEVSI4705
-		GPIO_DRV_SetPinOutput(kWarpPinSI4705_nRST);
-#endif
-		warpLowPowerSecondsSleep(1, false /* forceAllPinsIntoLowPowerState */);
-#ifdef WARP_BUILD_ENABLE_DEVSI4705
-		GPIO_DRV_ClearPinOutput(kWarpPinSI4705_nRST);
-#endif
-		warpLowPowerSecondsSleep(60, true /* forceAllPinsIntoLowPowerState */);
-	}
-}
-
 
 void
 enableLPUARTpins(void)
@@ -257,7 +139,6 @@ enableLPUARTpins(void)
 	LPUART_DRV_Init(0,(lpuart_state_t *)&lpuartState,(lpuart_user_config_t *)&lpuartUserConfig);
 
 }
-
 
 void
 disableLPUARTpins(void)
@@ -313,8 +194,6 @@ enableSPIpins(void)
 	SPI_DRV_MasterConfigureBus(0 /* SPI master instance */, (spi_master_user_config_t *)&spiUserConfig, &calculatedBaudRate);
 }
 
-
-
 void
 disableSPIpins(void)
 {
@@ -337,60 +216,6 @@ disableSPIpins(void)
 
 	CLOCK_SYS_DisableSpiClock(0);
 }
-
-
-
-void
-enableI2Cpins(uint16_t pullupValue)
-{
-	CLOCK_SYS_EnableI2cClock(0);
-
-	/*	Warp KL03_I2C0_SCL	--> PTB3	(ALT2 == I2C)		*/
-	PORT_HAL_SetMuxMode(PORTB_BASE, 3, kPortMuxAlt2);
-
-	/*	Warp KL03_I2C0_SDA	--> PTB4	(ALT2 == I2C)		*/
-	PORT_HAL_SetMuxMode(PORTB_BASE, 4, kPortMuxAlt2);
-
-
-	I2C_DRV_MasterInit(0 /* I2C instance */, (i2c_master_state_t *)&i2cMasterState);
-
-
-	/*
-	 *	TODO: need to implement config of the DCP
-	 */
-	//...
-}
-
-
-
-void
-disableI2Cpins(void)
-{
-	I2C_DRV_MasterDeinit(0 /* I2C instance */);	
-
-
-	/*	Warp KL03_I2C0_SCL	--> PTB3	(GPIO)			*/
-	PORT_HAL_SetMuxMode(PORTB_BASE, 3, kPortMuxAsGpio);
-
-	/*	Warp KL03_I2C0_SDA	--> PTB4	(GPIO)			*/
-	PORT_HAL_SetMuxMode(PORTB_BASE, 4, kPortMuxAsGpio);
-
-
-	/*
-	 *	TODO: need to implement clearing of the DCP
-	 */
-	//...
-
-	/*
-	 *	Drive the I2C pins low
-	 */
-	GPIO_DRV_ClearPinOutput(kWarpPinI2C0_SDA);
-	GPIO_DRV_ClearPinOutput(kWarpPinI2C0_SCL);
-
-
-	CLOCK_SYS_DisableI2cClock(0);
-}
-
 
 // TODO: add pin states for pan1326 lp states
 void
@@ -581,35 +406,6 @@ lowPowerPinStates(void)
 	//GPIO_DRV_SetPinOutput(kWarpPinSPI_MOSI);
 }
 
-
-
-void
-disableTPS82740A(void)
-{
-	GPIO_DRV_ClearPinOutput(kWarpPinTPS82740A_CTLEN);
-}
-
-void
-enableSssupply(uint16_t voltageMillivolts)
-{
-	if (voltageMillivolts >= 1800 && voltageMillivolts <= 2500)
-	{
-		enableTPS82740A(voltageMillivolts);
-	}
-	else if (voltageMillivolts >= 2600 && voltageMillivolts <= 3300)
-	{
-		enableTPS82740B(voltageMillivolts);
-	}
-	else
-	{
-#ifdef WARP_BUILD_ENABLE_SEGGER_RTT_PRINTF
-		SEGGER_RTT_printf(0, RTT_CTRL_RESET RTT_CTRL_BG_BRIGHT_RED RTT_CTRL_TEXT_BRIGHT_WHITE kWarpConstantStringErrorInvalidVoltage RTT_CTRL_RESET "\n", voltageMillivolts);
-#endif
-	}
-}
-
-
-
 void
 warpLowPowerSecondsSleep(uint32_t sleepSeconds, bool forceAllPinsIntoLowPowerState)
 {
@@ -627,100 +423,6 @@ warpLowPowerSecondsSleep(uint32_t sleepSeconds, bool forceAllPinsIntoLowPowerSta
 	warpSetLowPowerMode(kWarpPowerModeVLPS, sleepSeconds);
 }
 
-
-
-void
-printPinDirections(void)
-{
-	/*
-#ifdef WARP_BUILD_ENABLE_SEGGER_RTT_PRINTF 
-	SEGGER_RTT_printf(0, "KL03_VDD_ADC:%d\n", GPIO_DRV_GetPinDir(kWarpPinKL03_VDD_ADC));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "I2C0_SDA:%d\n", GPIO_DRV_GetPinDir(kWarpPinI2C0_SDA));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "I2C0_SCL:%d\n", GPIO_DRV_GetPinDir(kWarpPinI2C0_SCL));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "SPI_MOSI:%d\n", GPIO_DRV_GetPinDir(kWarpPinSPI_MOSI));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "SPI_MISO:%d\n", GPIO_DRV_GetPinDir(kWarpPinSPI_MISO));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "SPI_SCK_I2C_PULLUP_EN:%d\n", GPIO_DRV_GetPinDir(kWarpPinSPI_SCK_I2C_PULLUP_EN));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TPS82740A_VSEL2:%d\n", GPIO_DRV_GetPinDir(kWarpPinTPS82740_VSEL2));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "ADXL362_CS:%d\n", GPIO_DRV_GetPinDir(kWarpPinADXL362_CS));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "kWarpPinPAN1326_nSHUTD:%d\n", GPIO_DRV_GetPinDir(kWarpPinPAN1326_nSHUTD));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TPS82740A_CTLEN:%d\n", GPIO_DRV_GetPinDir(kWarpPinTPS82740A_CTLEN));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TPS82740B_CTLEN:%d\n", GPIO_DRV_GetPinDir(kWarpPinTPS82740B_CTLEN));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TPS82740A_VSEL1:%d\n", GPIO_DRV_GetPinDir(kWarpPinTPS82740_VSEL1));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TPS82740A_VSEL3:%d\n", GPIO_DRV_GetPinDir(kWarpPinTPS82740_VSEL3));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "CLKOUT32K:%d\n", GPIO_DRV_GetPinDir(kWarpPinCLKOUT32K));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "TS5A3154_IN:%d\n", GPIO_DRV_GetPinDir(kWarpPinTS5A3154_IN));
-	OSA_TimeDelay(100);
-	SEGGER_RTT_printf(0, "SI4705_nRST:%d\n", GPIO_DRV_GetPinDir(kWarpPinSI4705_nRST));
-	OSA_TimeDelay(100);
-#endif
-	*/
-}
-
-
-
-void
-dumpProcessorState(void)
-{
-/*
-	uint32_t	cpuClockFrequency;
-
-	CLOCK_SYS_GetFreq(kCoreClock, &cpuClockFrequency);
-#ifdef WARP_BUILD_ENABLE_SEGGER_RTT_PRINTF
-	SEGGER_RTT_printf(0, "\r\n\n\tCPU @ %u KHz\n", (cpuClockFrequency / 1000));
-	SEGGER_RTT_printf(0, "\r\tCPU power mode: %u\n", POWER_SYS_GetCurrentMode());
-	SEGGER_RTT_printf(0, "\r\tCPU clock manager configuration: %u\n", CLOCK_SYS_GetCurrentConfiguration());
-	SEGGER_RTT_printf(0, "\r\tRTC clock: %d\n", CLOCK_SYS_GetRtcGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tSPI clock: %d\n", CLOCK_SYS_GetSpiGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tI2C clock: %d\n", CLOCK_SYS_GetI2cGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tLPUART clock: %d\n", CLOCK_SYS_GetLpuartGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tPORT A clock: %d\n", CLOCK_SYS_GetPortGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tPORT B clock: %d\n", CLOCK_SYS_GetPortGateCmd(1));
-	SEGGER_RTT_printf(0, "\r\tFTF clock: %d\n", CLOCK_SYS_GetFtfGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tADC clock: %d\n", CLOCK_SYS_GetAdcGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tCMP clock: %d\n", CLOCK_SYS_GetCmpGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tVREF clock: %d\n", CLOCK_SYS_GetVrefGateCmd(0));
-	SEGGER_RTT_printf(0, "\r\tTPM clock: %d\n", CLOCK_SYS_GetTpmGateCmd(0));
-#endif
-*/
-}
-
-#ifdef WARP_BUILD_ENABLE_THERMALCHAMBERANALYSIS
-void
-addAndMultiplicationBusyLoop(long iterations)
-{
-	int value;
-	for (volatile long i = 0; i < iterations; i++)
-	{
-		value = kWarpThermalChamberBusyLoopAdder + value * kWarpThermalChamberBusyLoopMutiplier;
-	}
-}
-
-uint8_t
-checkSum(uint8_t *  pointer, uint16_t length) /*	Adapted from https://stackoverflow.com/questions/31151032/writing-an-8-bit-checksum-in-c	*/
-{
-	unsigned int sum;
-	for ( sum = 0 ; length != 0 ; length-- )
-	{
-		sum += *(pointer++);
-	}
-	return (uint8_t)sum;
-}
-#endif
-
 int
 main(void)
 {
@@ -729,14 +431,10 @@ main(void)
 	 */
 	g_xtal0ClkFreq = 32768U;
 
-
-
 	/*
 	 *	Initialize KSDK Operating System Abstraction layer (OSA) layer.
 	 */
 	OSA_Init();
-
-
 
 	/*
 	 *	Setup SEGGER RTT to output as much as fits in buffers.
@@ -745,8 +443,6 @@ main(void)
 	 *	we might have SWD disabled at time of blockage.
 	 */
 	SEGGER_RTT_ConfigUpBuffer(0, NULL, NULL, 0, SEGGER_RTT_MODE_NO_BLOCK_TRIM);
-
-
 	SEGGER_RTT_WriteString(0, "\n\n\n\rBooting Warp, in 3... ");
 	OSA_TimeDelay(200);
 	SEGGER_RTT_WriteString(0, "2... ");
@@ -754,35 +450,15 @@ main(void)
 	SEGGER_RTT_WriteString(0, "1...\n\r");
 	OSA_TimeDelay(200);
 
-
-
-	/*
-	 *	Configure Clock Manager to default, and set callback for Clock Manager mode transition.
-	 *
-	 *	See "Clocks and Low Power modes with KSDK and Processor Expert" document (Low_Power_KSDK_PEx.pdf)
-	 */
-	CLOCK_SYS_Init(	g_defaultClockConfigurations,
-			CLOCK_CONFIG_NUM,
-			&clockCallbackTable,
-			ARRAY_SIZE(clockCallbackTable)
-			);
-	CLOCK_SYS_UpdateConfiguration(CLOCK_CONFIG_INDEX_FOR_RUN, kClockManagerPolicyForcible);
-
-
-
 	/*
 	 *	Initialize RTC Driver
 	 */
 	RTC_DRV_Init(0);
 
-
-
 	/*
 	 *	Switch CPU to Very Low Power Run (VLPR) mode
 	 */
 	//warpSetLowPowerMode(kWarpPowerModeVLPR, 0);
-
-
 
 	/*
 	 *	Initialize the GPIO pins with the appropriate pull-up, etc.,
@@ -798,8 +474,6 @@ main(void)
 	 */
 	lowPowerPinStates();
 
-
-
 	/*
 	 *	Toggle LED3 (kWarpPinSI4705_nRST)
 	 */
@@ -814,7 +488,6 @@ main(void)
 	GPIO_DRV_SetPinOutput(kWarpPinSI4705_nRST);
 	OSA_TimeDelay(200);
 	GPIO_DRV_ClearPinOutput(kWarpPinSI4705_nRST);
-
 
 	devSSD1331init();
 	
