@@ -7,6 +7,7 @@
 #include "gpio_pins.h"
 #include "warp.h"
 #include "devSSD1331.h"
+#include "tetris.h"
 
 volatile uint8_t	inBuffer[1];
 volatile uint8_t	payloadBytes[1];
@@ -155,7 +156,7 @@ devSSD1331init(void)
 	/*
 	 *	Any post-initialization drawing commands go here.
 	 */
-	//...
+	play();
 
 
 
