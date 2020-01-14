@@ -22,28 +22,12 @@
 #define __WEAK_FUNC __weak
 #endif
 
-volatile uint8_t inBuffer[1];
-volatile uint8_t payloadBytes[1];
-
-uint16_t color_masks[3] = {
-	0b1111100000000000,
-	0b0000011111100000,
-	0b0000000000011111,
-};
-
-uint16_t purple = 0b1111100000011111;
-
-/*
- *	Override Warp firmware's use of these pins and define new aliases.
- */
-enum
-{
-	kSSD1331PinMOSI		= GPIO_MAKE_PIN(HW_GPIOA, 8),
-	kSSD1331PinSCK		= GPIO_MAKE_PIN(HW_GPIOA, 9),
-	kSSD1331PinCSn		= GPIO_MAKE_PIN(HW_GPIOB, 13),
-	kSSD1331PinDC		= GPIO_MAKE_PIN(HW_GPIOA, 12),
-	kSSD1331PinRST		= GPIO_MAKE_PIN(HW_GPIOB, 0),
-};
+volatile uint8_t inBuffer[1], payloadBytes[1];
+bool held = 0, falling = 1, soft_dropping =0, done = 0;
+Point loc;
+Piece fall;
+int hold = -1, next[NEXT], bag[NUM_PIECES], next_head, bag_head, level;
+uint32_t prev_draw, prev_fall, curr, lock_start;
 
 static int
 sendByte(uint8_t byte)
@@ -61,11 +45,10 @@ sendByte(uint8_t byte)
 	return status;
 }
 
-void fill_bag(Piece *bag) {
+void fill_bag(int bag[NUM_PIECES]) {
     // generate random perm
-    uint8_t perm[NUM_PIECES];
     for (int i=0; i<NUM_PIECES; i++)
-        perm[i] = i;
+        bag[i] = i;
 
 		/*
     for (int i=0; i<NUM_PIECES; i++) {
@@ -76,28 +59,24 @@ void fill_bag(Piece *bag) {
         perm[i] = tmp;
     }
 		*/
-
-    // fill bag according to perm
-    for (int i=0; i<NUM_PIECES; i++) {
-        *(bag+i) = PIECES[perm[i]];
-    }
 }
 
-Piece pop_next(Piece *next, Piece *bag, uint8_t *next_head, uint8_t *bag_head) {
+int pop_next(int next[NEXT], int bag[NUM_PIECES], int *next_head, int *bag_head) {
 		// require non-empty bag for repopulating next after pop
     if (*bag_head == NUM_PIECES)
         fill_bag(bag);
 		*bag_head = 0;
 
     // pop from next for retval, pop from bag for next next
-    Piece next_piece = *(next+(*next_head));
-		*(next+(*next_head)) = *(bag+(*bag_head)++);
+    int next_piece = next[*next_head];
+		next[*next_head] = bag[*bag_head];
 		*next_head = (*next_head + 1) % NEXT;
+		*bag_head = *bag_head + 1;
     return next_piece;
 }
 
 // TODO change this to a void fn which can also perform the action (if legal) and incoporate rotations
-int can_fall(Piece *fall, Point *loc, bool matrix[COLS][ROWS]) {
+int can_fall(Piece *fall, Point *loc, int8_t matrix[COLS][ROWS]) {
     int x, y;
     for (int i=0; i<4; i++) {
         y = loc->y + fall->points[i].y - 1;
@@ -106,7 +85,7 @@ int can_fall(Piece *fall, Point *loc, bool matrix[COLS][ROWS]) {
         if (y < 0)
             return 0;
         x = loc->x + fall->points[i].x;
-        if (matrix[x][y])
+        if (matrix[x][y] > -1)
             return 0;
     }
     return 1;
@@ -123,14 +102,14 @@ void rotate(Piece *fall, int direction) { // direciton: 1 => ccw, -1 => cw
     }
 }
 
-int can_rotate(Piece *fall, Point *loc, bool matrix[COLS][ROWS], int direction) {
+int can_rotate(Piece *fall, Point *loc, int8_t matrix[COLS][ROWS], int direction) {
     int x, y;
     Piece tmp = *fall;
     rotate(&tmp, direction);
     for (int i=0; i<4; i++) {
         x = loc->x + tmp.points[i].x;
         y = loc->y + tmp.points[i].y;
-        if (y < 0 || x < 0 || x >= COLS || matrix[x][y])
+        if (y < 0 || x < 0 || x >= COLS || matrix[x][y] > -1)
             return 0;
     }
     return 1;
@@ -144,21 +123,14 @@ double speed(int level, int soft_dropping) {
 
 void clear()
 {
-		/*
-		 *	Clear Screen
-		 */
 		GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
 		sendByte(kSSD1331CommandDRAWRECT);
 		sendByte(0x00);
 		sendByte(0x00);
 		sendByte(0x5F);
 		sendByte(0x3F);
-		sendByte(0);
-		sendByte(0);
-		sendByte(0);
-		sendByte(0);
-		sendByte(0);
-		sendByte(0);
+		for (int i=0; i<6; i++)
+				sendByte(0);
 		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
 }
 
@@ -177,60 +149,6 @@ drawSquare(uint8_t x, uint8_t y, uint16_t color)
 		sendByte((color&color_masks[2])<<1);
 	}
 	GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
-}
-
-void draw(bool matrix[COLS][ROWS], Point *loc, Piece *fall, Piece *hold, Piece *next, Piece *bag, uint8_t next_head, uint8_t bag_head, bool hold_empty) {
-		clear();
-		OSA_TimeDelay(1);
-		GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
-		// draw borders
-		for (int i=0; i<2; i++) {
-				sendByte(kSSD1331CommandDRAWLINE);
-				sendByte(0);
-				sendByte(i ? 11 : 52);
-				sendByte(95);
-				sendByte(i ? 11 : 52);
-				sendByte(63);
-				sendByte(63);
-				sendByte(63);
-		}
-		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
-
-		// draw matrix
-    for (int x=0; x<COLS; x++)
-        for (int y=0; y<ROWS; y++)
-            if (matrix[x][y])
-                drawSquare(MARGIN+x, y, purple);
-    
-		// draw ghost (before fall)
-    Point ghost_loc = *loc;
-    while (can_fall(fall, &ghost_loc, matrix))
-        ghost_loc.y--;
-    for (int i=0; i<4; i++) {
-        drawSquare(MARGIN+ghost_loc.x+fall->points[i].x, ghost_loc.y+fall->points[i].y, 0b0011100011100111);
-    }
-
-    // draw fall
-    for (int i=0; i<4; i++)
-        drawSquare(MARGIN+loc->x+fall->points[i].x, loc->y+fall->points[i].y, purple);
-
-		Piece rot;
-
-		// draw next
-    //mvprintw(BUFFER-2, 5+COLS+1, "NEXT");
-    for (int i=0; i<NEXT; i++) {
-        rot = *(next + (next_head+i)%NEXT);
-				rotate(&rot, -1);
-				for (int j=0; j<4; j++)
-            drawSquare(MARGIN+COLS+1+rot.points[j].x, ROWS-(5*i)+rot.points[j].y, purple);
-    }
-
-    // draw hold
-    //mvprintw(BUFFER-2, 0, "HOLD");
-    if (!hold_empty) {
-        for (int i=0; i<4; i++)
-            drawSquare(hold->points[i].x, ROWS-4+hold->points[i].y, purple);
-    }
 }
 
 /*FUNCTION**********************************************************************
@@ -253,24 +171,17 @@ __WEAK_FUNC uint32_t OSA_TimeDiff(uint32_t time_start, uint32_t time_end)
 		}
 }
 
-bool hold_empty = 1;
-Point loc;
-Piece fall, hold, next[NEXT], bag[NUM_PIECES];
-uint8_t next_head, bag_head;
-
-uint8_t done, level;
-uint32_t prev_draw, prev_fall, curr, lock_start;
-
-uint8_t held, falling, soft_dropping;
 void play() {
 		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
 		OSA_TimeDelay(10);
 
-		bool matrix[COLS][ROWS] = {{0}};
-		fill_bag(&bag[0]);
-		for (int i=0; i<NEXT; i++) {
+		int8_t matrix[COLS][ROWS];
+		for (int x=0; x<COLS; x++)
+				for (int y=0; y<ROWS; y++)
+						matrix[x][y] = -1;
+		fill_bag(bag);
+		for (int i=0; i<NEXT; i++)
 				next[i] = bag[i];
-		}
 		bag_head = NEXT;
 		next_head = 0;
     
@@ -279,14 +190,19 @@ void play() {
 		level = 0;
 		soft_dropping = 0;
 		done = 0;
-
     while (!done) {
         /********************************************/
         /*              GENERATION PHASE            */
         /********************************************/
         loc.x = COL_SPAWN;
 				loc.y = ROW_SPAWN;
-        fall = pop_next(&next[0], &bag[0], &next_head, &bag_head);
+        fall = PIECES[next[next_head]];
+				if (bag_head == NUM_PIECES) {
+						fill_bag(bag);
+						bag_head = 0;
+				}
+				next[next_head] = bag[bag_head++];
+				next_head = (next_head+1)%NEXT;
 
         /********************************************/
         /*              FALLING/LOCK PHASE          */
@@ -307,7 +223,7 @@ void play() {
                     for (int i=0; i<4; i++) {
                         int x = loc.x + fall.points[i].x;
                         int y = loc.y + fall.points[i].y;
-                        matrix[x][y] = 1;
+                        matrix[x][y] = fall.id;
                     }
                     break; /* EXIT POINT */
                 }
@@ -329,8 +245,65 @@ void play() {
 
             // redraw game screen 
             if (OSA_TimeDiff(prev_draw, curr) > 1000.0 / FPS) {
-                draw(matrix, &loc, &fall, &hold, &next[0], &bag[0], next_head, bag_head, hold_empty);
-                prev_draw = curr;
+								clear();
+								OSA_TimeDelay(1);
+
+								// draw borders
+								GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
+								for (int i=0; i<2; i++) {
+										sendByte(kSSD1331CommandDRAWLINE);
+										sendByte(0);
+										sendByte(i ? 11 : 52);
+										sendByte(95);
+										sendByte(i ? 11 : 52);
+										sendByte(63);
+										sendByte(63);
+										sendByte(63);
+								}
+								GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
+
+								// draw matrix
+								for (int x=0; x<COLS; x++)
+										for (int y=0; y<ROWS; y++)
+												if (matrix[x][y] > -1)
+														drawSquare(MARGIN+x, y, COLORS[matrix[x][y]]);
+
+								// draw ghost (before fall)
+								Point ghost_loc = loc;
+								while (can_fall(&fall, &ghost_loc, matrix))
+										ghost_loc.y--;
+								for (int i=0; i<4; i++)
+										drawSquare(MARGIN+ghost_loc.x+fall.points[i].x, ghost_loc.y+fall.points[i].y, GREY); // TODO fade colors
+
+								// draw fall
+								for (int i=0; i<4; i++)
+										drawSquare(MARGIN+loc.x+fall.points[i].x, loc.y+fall.points[i].y, COLORS[fall.id]);
+
+								Piece rot;
+
+								// draw next
+								for (int i=0; i<NEXT; i++) {
+										rot = PIECES[*(next+(next_head+i)%NEXT)];
+										rotate(&rot, -1);
+										for (int j=0; j<4; j++)
+												drawSquare(MARGIN+COLS+1+rot.points[j].x, ROWS-(5*i)+rot.points[j].y, COLORS[rot.id]);
+								}
+
+								// draw hold
+								if (hold > -1) {
+										for (int i=0; i<4; i++)
+												drawSquare(PIECES[hold].points[i].x, ROWS-4+PIECES[hold].points[i].y, COLORS[hold]);
+								}
+
+								// draw bag
+								for (int i=0; bag_head+i<NUM_PIECES && i<4; i++) {
+										rot = PIECES[bag[bag_head+i]];
+										rotate(&rot, -1);
+										for (int j=0; j<4; j++)
+												drawSquare(rot.points[j].x, ROWS-(5*i)+rot.points[j].y, COLORS[rot.id]);
+								}
+
+								prev_draw = OSA_TimeGetMsec();
             }
         }
         
@@ -342,7 +315,7 @@ void play() {
         for (int y=0; y<ROWS; y++) {
             int complete = 1;
             for (int x=0; x<COLS; x++) {
-                if (matrix[x][y] == 0) {
+                if (matrix[x][y] == -1) {
                     complete = 0;
                     break;
                 }

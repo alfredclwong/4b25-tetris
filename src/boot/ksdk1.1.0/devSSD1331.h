@@ -6,6 +6,18 @@
 #define WARP_BUILD_ENABLE_DEVSSD1331
 #endif
 
+/*
+ *	Override Warp firmware's use of these pins and define new aliases.
+ */
+enum
+{
+	kSSD1331PinMOSI		= GPIO_MAKE_PIN(HW_GPIOA, 8),
+	kSSD1331PinSCK		= GPIO_MAKE_PIN(HW_GPIOA, 9),
+	kSSD1331PinCSn		= GPIO_MAKE_PIN(HW_GPIOB, 13),
+	kSSD1331PinDC		  = GPIO_MAKE_PIN(HW_GPIOA, 12),
+	kSSD1331PinRST		= GPIO_MAKE_PIN(HW_GPIOB, 0),
+};
+
 typedef enum
 {
 	kSSD1331ColororderRGB		= 1,
