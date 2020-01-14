@@ -7,7 +7,7 @@
 #define NUM_PIECES 7
 #define COL_SPAWN 4 // spawn on 4th (-1) to 7th (2) cols
 #define ROW_SPAWN 20 // spawn on 21st (0) and 22nd (1) rows
-#define FPS 10
+#define FPS 30
 
 void play();
 

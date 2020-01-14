@@ -12,6 +12,7 @@
 #include "gpio_pins.h"
 #include "warp.h"
 #include "devSSD1331.h"
+#include "devINA219.h"
 
 /* Weak function. */
 #if defined(__GNUC__)
@@ -26,8 +27,8 @@ volatile uint8_t inBuffer[1], payloadBytes[1];
 bool held = 0, falling = 1, soft_dropping =0, done = 0, paused = 0;
 Point loc;
 Piece fall;
-int hold = -1, next[NEXT], bag[NUM_PIECES], next_head, bag_head, level;
-uint32_t prev_draw, prev_fall, curr, lock_start;
+int hold = -1, next[NEXT], bag[NUM_PIECES], next_head, bag_head, level, lines_cleared = 0;
+uint32_t prev_read, prev_draw, prev_fall, curr, lock_start;
 
 static int
 sendByte(uint8_t byte)
@@ -121,14 +122,14 @@ double speed(int level, int soft_dropping) {
     return pow(0.8 - level * 0.007, level);
 }
 
-void clear()
+void clear(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
 {
 		GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
 		sendByte(kSSD1331CommandDRAWRECT);
-		sendByte(0x00);
-		sendByte(0x00);
-		sendByte(0x5F);
-		sendByte(0x3F);
+		sendByte(y1);
+		sendByte(x1);
+		sendByte(y2);
+		sendByte(x2);
 		for (int i=0; i<6; i++)
 				sendByte(0);
 		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
@@ -175,6 +176,12 @@ void play() {
 		GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
 		OSA_TimeDelay(10);
 
+		/****************************************/
+		/*						INA219 setup							*/
+		/****************************************/
+		initINA219(0x40, NULL);
+		SEGGER_RTT_printf(0, "Idle current reading: %d\n", readCurrent());
+
 		int8_t matrix[COLS][ROWS];
 		for (int x=0; x<COLS; x++)
 				for (int y=0; y<ROWS; y++)
@@ -212,6 +219,7 @@ void play() {
         curr = OSA_TimeGetMsec();
 				prev_fall = curr - 999;
         prev_draw = curr - 999;
+				prev_read = curr;
         while (!done) {
 						char key = SEGGER_RTT_GetKey();
 						int dx, drot;
@@ -276,9 +284,15 @@ void play() {
 										break;
 						}
 
-						if (paused)
-								continue;
 						curr = OSA_TimeGetMsec();
+
+						if (OSA_TimeDiff(prev_read, curr) > 1000) {
+								SEGGER_RTT_printf(0, "\nCurrent reading: %d\n", readCurrent());
+								prev_read = curr;
+						}
+
+						if (paused) // TODO maintaim time differences during pause
+								continue;
 
             if (!falling) {
                 // check lock and update lock timer
@@ -308,7 +322,7 @@ void play() {
 
             // redraw game screen 
             if (OSA_TimeDiff(prev_draw, curr) > 1000.0 / FPS) {
-								clear();
+								clear(12, 0, 53, 95);
 								OSA_TimeDelay(1);
 
 								// draw borders
@@ -354,10 +368,13 @@ void play() {
 
 								// draw hold
 								if (hold > -1) {
+										rot = PIECES[hold];
+										rotate(&rot, -1);
 										for (int i=0; i<4; i++)
-												drawSquare(PIECES[hold].points[i].x, ROWS-4+PIECES[hold].points[i].y, COLORS[hold]);
+												drawSquare(rot.points[i].x, ROWS+rot.points[i].y, COLORS[hold]);
 								}
 
+								/*
 								// draw bag
 								for (int i=0; bag_head+i<NUM_PIECES && i<4; i++) {
 										rot = PIECES[bag[bag_head+i]];
@@ -365,6 +382,7 @@ void play() {
 										for (int j=0; j<4; j++)
 												drawSquare(rot.points[j].x, ROWS-(5*i)+rot.points[j].y, COLORS[rot.id]);
 								}
+								*/
 
 								prev_draw = OSA_TimeGetMsec();
             }
@@ -396,5 +414,21 @@ void play() {
             for (int x=0; x<COLS; x++)
                 matrix[x][ROWS-1] = -1;
         }
+				switch (n_lines) {
+						case 1:
+								lines_cleared += 1;
+								break;
+						case 2:
+								lines_cleared += 3;
+								break;
+						case 3:
+								lines_cleared += 5;
+								break;
+						case 4:
+								lines_cleared += 8;
+								break;
+				}
+				if (level < 15 && lines_cleared >= 5*(level+1)*(level+2)/2)
+						level++;
     }
 }

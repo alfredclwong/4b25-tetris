@@ -55,6 +55,7 @@
 #include "SEGGER_RTT.h"
 #include "warp.h"
 
+#include "devINA219.h"
 #include "devSSD1331.h"
 
 
