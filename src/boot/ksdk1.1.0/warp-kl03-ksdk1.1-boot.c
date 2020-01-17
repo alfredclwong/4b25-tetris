@@ -459,7 +459,7 @@ main(void)
 	/*
 	 *	Switch CPU to Very Low Power Run (VLPR) mode
 	 */
-	//warpSetLowPowerMode(kWarpPowerModeVLPR, 0);
+	warpSetLowPowerMode(kWarpPowerModeVLPR, 0);
 
 	/*
 	 *	Initialize the GPIO pins with the appropriate pull-up, etc.,

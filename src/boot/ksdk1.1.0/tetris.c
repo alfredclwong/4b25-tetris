@@ -144,12 +144,21 @@ drawSquare(uint8_t x, uint8_t y, uint16_t color)
 	sendByte(4*x++);
 	sendByte(4*y-1);
 	sendByte(4*x-1);
-	for (int i=0; i<2; i++) {
-		sendByte((color&color_masks[0])>>10);
-		sendByte((color&color_masks[1])>>5);
-		sendByte((color&color_masks[2])<<1);
-	}
+	//sendByte(7);
+	//sendByte(7);
+	//sendByte(7);
+	sendByte((color&color_masks[0])>>10);
+	sendByte((color&color_masks[1])>>5);
+	sendByte((color&color_masks[2])<<1);
+	sendByte((color&color_masks[0])>>10);
+	sendByte((color&color_masks[1])>>5);
+	sendByte((color&color_masks[2])<<1);
 	GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
+}
+
+void erasePiece(Point *loc, Piece *p) {
+		for (int i=0; i<4; i++)
+				drawSquare(MARGIN+loc->x+p->points[i].x, loc->y+p->points[i].y, 0);
 }
 
 /*FUNCTION**********************************************************************
@@ -170,6 +179,36 @@ __WEAK_FUNC uint32_t OSA_TimeDiff(uint32_t time_start, uint32_t time_end)
 				/* lptmr count is 16 bits. */
 				return FSL_OSA_TIME_RANGE - time_start + time_end + 1;
 		}
+}
+
+void drawNumber(int number, int n_digits, uint8_t x, uint8_t y, uint16_t color) {
+		int pow10 = 1, digit;
+		for (int i=n_digits-1; i>=0; i--) {
+				digit = number / pow10;
+				pow10 *= 10;
+				digit %= pow10;
+				for (int j=0; j<7; j++) {
+						if (DIGITS[digit] >> j & 1) {
+								GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
+								sendByte(kSSD1331CommandDRAWLINE);
+								for (int k=0; k<2; k++) {
+									sendByte(y+SEGMENTS[j][k].y);
+									sendByte(x+SEGMENTS[j][k].x+i*4);
+								}
+								sendByte((color&color_masks[0])>>10);
+								sendByte((color&color_masks[1])>>5);
+								sendByte((color&color_masks[2])<<1);
+								GPIO_DRV_SetPinOutput(kSSD1331PinCSn);
+						}
+				}
+		}
+}
+
+Point getGhostLoc(Piece *fall, Point *loc, int8_t matrix[COLS][ROWS]) {
+		Point ghostLoc = *loc;
+		while (can_fall(fall, &ghostLoc, matrix))
+				ghostLoc.y--;
+		return ghostLoc;
 }
 
 void play() {
@@ -225,12 +264,22 @@ void play() {
 						char key = SEGGER_RTT_GetKey();
 						int dx, drot;
 						switch(key) {
+								/*
 								case 'q':
 										done = 1;
 										continue;
+								*/
 								case 'p':
 										paused = !paused;
 										continue;
+								case 'r':
+										level = 0;
+										lines_cleared = 0;
+										for (int x=0; x<COLS; x++)
+												for (int y=0; y<ROWS; y++)
+														matrix[x][y] = -1;
+										clear(12, 0, 53, 95);
+										break;
 								case 'n': // left
 								case 'm': // right
 										dx = key == 'n' ? -1 : 1;
@@ -242,9 +291,15 @@ void play() {
 														break;
 												}
 										}
-										loc.x += dx;
+										if (dx) {
+											Point ghost_loc = getGhostLoc(&fall, &loc, matrix);
+											erasePiece(&ghost_loc, &fall);
+											erasePiece(&loc, &fall);
+											loc.x += dx;
+										}
 										break;
 								case ' ': // hard drop
+										erasePiece(&loc, &fall);
 										while (can_fall(&fall, &loc, matrix))
 												loc.y--;
 										falling = 0;
@@ -256,10 +311,17 @@ void play() {
 								case 'z': // rotate ccw
 								case 'x': // rotate cw
 										drot = key == 'z' ? 1: -1;
-										if (can_rotate(&fall, &loc, matrix, drot))
+										if (can_rotate(&fall, &loc, matrix, drot)) {
+												Point ghost_loc = getGhostLoc(&fall, &loc, matrix);
+												erasePiece(&ghost_loc, &fall);
+												erasePiece(&loc, &fall);
 												rotate(&fall, drot);
+										}
 										break;
 								case 'c': // hold
+										{Point ghost_loc = getGhostLoc(&fall, &loc, matrix);
+										erasePiece(&ghost_loc, &fall);}
+										erasePiece(&loc, &fall);
 										if (held)
 												break;
 										if (hold > -1) { // swap hold and fall
@@ -275,11 +337,12 @@ void play() {
 												}
 												next[next_head] = bag[bag_head++];
 												next_head = (next_head+1)%NEXT;
+												clear(55, 0, 63, 95); // clear next
 										}
 										loc.x = COL_SPAWN;
 										loc.y = ROW_SPAWN;
 										held = 1;
-										clear(0, 0, 10, 95);
+										clear(0, 0, 10, 95); // clear hold
 										break;
 								default:
 										soft_dropping = 0;
@@ -313,6 +376,7 @@ void play() {
             if (falling) { // note: do not use an else as the lock block above can change the value of falling
                 if (OSA_TimeDiff(prev_fall, curr) > speed(level, soft_dropping) * 1000.0) {
                     if (can_fall(&fall, &loc, matrix)) {
+												erasePiece(&loc, &fall);
                         loc.y--;
                         prev_fall = curr;
                     } else {
@@ -324,8 +388,8 @@ void play() {
 
             // redraw game screen 
             if (OSA_TimeDiff(prev_draw, curr) > 1000.0 / FPS) {
-								clear(12, 0, 53, 95);
-								OSA_TimeDelay(1);
+								//clear(12, 0, 53, 95);
+								//OSA_TimeDelay(1);
 
 								// draw borders
 								GPIO_DRV_ClearPinOutput(kSSD1331PinCSn);
@@ -348,9 +412,7 @@ void play() {
 														drawSquare(MARGIN+x, y, COLORS[matrix[x][y]]);
 
 								// draw ghost (before fall)
-								Point ghost_loc = loc;
-								while (can_fall(&fall, &ghost_loc, matrix))
-										ghost_loc.y--;
+								Point ghost_loc = getGhostLoc(&fall, &loc, matrix);
 								for (int i=0; i<4; i++)
 										drawSquare(MARGIN+ghost_loc.x+fall.points[i].x, ghost_loc.y+fall.points[i].y, GREY); // TODO fade colors
 
@@ -386,6 +448,10 @@ void play() {
 								}
 								*/
 
+								// draw stats
+								drawNumber(lines_cleared, 3, 0, 0, WHITE);
+								drawNumber(level, 2, 0, 7, WHITE);
+
 								prev_draw = OSA_TimeGetMsec();
             }
         }
@@ -410,27 +476,20 @@ void play() {
 
         // elimination
         for (int i=0; i<n_lines; i++) {
+						clear(12, lines[i]*4, 53, 95);
             for (int y=lines[i]-i; y<ROWS-1; y++)
                 for (int x=0; x<COLS; x++)
                     matrix[x][y] = matrix[x][y+1];
             for (int x=0; x<COLS; x++)
                 matrix[x][ROWS-1] = -1;
         }
-				switch (n_lines) {
-						case 1:
-								lines_cleared += 1;
-								break;
-						case 2:
-								lines_cleared += 3;
-								break;
-						case 3:
-								lines_cleared += 5;
-								break;
-						case 4:
-								lines_cleared += 8;
-								break;
+				if (n_lines) {
+						clear(0, 0, 11, 4);
+						lines_cleared += n_lines;
 				}
-				if (level < 15 && lines_cleared >= 5*(level+1)*(level+2)/2)
+				if (level < 15 && lines_cleared >= 10*(level+1)) {
+						clear(0, 7, 11, 11);
 						level++;
+				}
     }
 }
