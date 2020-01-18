@@ -278,7 +278,8 @@ void play() {
 										for (int x=0; x<COLS; x++)
 												for (int y=0; y<ROWS; y++)
 														matrix[x][y] = -1;
-										clear(12, 0, 53, 95);
+										clear(12, 0, 53, 95); // matrix
+										clear(0, 0, 11, 11); // level and lines
 										break;
 								case 'n': // left
 								case 'm': // right
@@ -352,7 +353,7 @@ void play() {
 						curr = OSA_TimeGetMsec();
 
 						if (OSA_TimeDiff(prev_read, curr) > 1000) {
-								SEGGER_RTT_printf(0, "\nCurrent reading: %d\n", readCurrent());
+								SEGGER_RTT_printf(0, "%d\n", readCurrent());
 								prev_read = curr;
 						}
 
@@ -387,7 +388,7 @@ void play() {
             }
 
             // redraw game screen 
-            if (OSA_TimeDiff(prev_draw, curr) > 1000.0 / FPS) {
+            if (OSA_TimeDiff(prev_draw, curr) >= 1000.0 / FPS) {
 								//clear(12, 0, 53, 95);
 								//OSA_TimeDelay(1);
 
@@ -451,6 +452,8 @@ void play() {
 								// draw stats
 								drawNumber(lines_cleared, 3, 0, 0, WHITE);
 								drawNumber(level, 2, 0, 7, WHITE);
+								clear(0, 20, 11, 24);
+								drawNumber(1000 / (curr - prev_draw), 3, 0, 20, WHITE);
 
 								prev_draw = OSA_TimeGetMsec();
             }
